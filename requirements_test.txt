@@ -1,0 +1,10 @@
+pytest
+pytest-homeassistant-custom-component>=0.13.300
+pytest-asyncio
+respx
+aiohttp
+ollama
+hassil
+home-assistant-intents
+aiodns>=3.2.0
+pycares<5

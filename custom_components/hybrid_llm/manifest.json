@@ -1,0 +1,19 @@
+{
+    "domain": "hybrid_llm",
+    "name": "Hybrid Local Voice Backend",
+    "codeowners": [
+        "@russdill"
+    ],
+    "config_flow": true,
+    "dependencies": [
+        "conversation",
+        "media_player"
+    ],
+    "documentation": "https://github.com/russdill/hybrid_llm",
+    "requirements": [
+        "aiohttp",
+        "ollama"
+    ],
+    "iot_class": "local_push",
+    "version": "0.1.0"
+}
