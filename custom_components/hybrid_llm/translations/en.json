@@ -24,7 +24,9 @@
                     "llm_hass_api": "Control Home Assistant",
                     "think": "Think before responding",
                     "filler_model": "Filler Model",
-                    "filler_prompt": "Filler Prompt"
+                    "filler_prompt": "Filler Prompt",
+                    "enable_native_intents": "Enable Native Intents",
+                    "enable_fuzzy_matching": "Enable Fuzzy Matching for Intents"
                 },
                 "data_description": {
                     "prompt": "Instruct how the LLM should respond. This can be a template.",
@@ -32,7 +34,8 @@
                     "keep_alive": "Duration in seconds for Ollama to keep model in memory. -1 = indefinite, 0 = never.",
                     "think": "If enabled, the LLM will think before responding. This can improve response quality but may increase latency.",
                     "filler_model": "Small, fast model used to generate a brief 'checking...' phrase while the main model processes.",
-                    "filler_prompt": "Prompt template for generating filler phrases."
+                    "filler_prompt": "Prompt template for generating filler phrases.",
+                    "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle."
                 }
             },
             "download": {

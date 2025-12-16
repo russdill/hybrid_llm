@@ -12,7 +12,8 @@ CONF_LLM_HASS_API: Final = "llm_hass_api"
 CONF_THINK: Final = "think"
 CONF_FILLER_MODEL: Final = "filler_model"
 CONF_FILLER_PROMPT: Final = "filler_prompt"
-CONF_DISABLE_FUZZY_MATCHING: Final = "disable_fuzzy_matching"
+CONF_ENABLE_NATIVE_INTENTS: Final = "enable_native_intents"
+CONF_ENABLE_FUZZY_MATCHING: Final = "enable_fuzzy_matching"
 
 from homeassistant.helpers import llm
 
@@ -24,6 +25,8 @@ DEFAULT_NUM_CTX: Final = 4096
 DEFAULT_MAX_HISTORY: Final = 10
 DEFAULT_FILLER_MODEL: Final = "qwen2:0.5b"
 DEFAULT_FILLER_PROMPT: Final = "User said: '{{ text }}'. Echo the subject with a 'checking' phrase. Max 4 words."
+DEFAULT_ENABLE_NATIVE_INTENTS: Final = True
+DEFAULT_ENABLE_FUZZY_MATCHING: Final = False
 
 COMMON_MODELS: Final = [
     "alfred",

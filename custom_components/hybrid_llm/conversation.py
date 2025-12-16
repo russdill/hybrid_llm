@@ -1,7 +1,6 @@
 """Hybrid Conversation Agent for Home Assistant."""
 from typing import Literal, AsyncGenerator, Any
 import logging
-import asyncio
 import ollama
 import json
 
@@ -25,7 +24,16 @@ from .const import (
     CONF_THINK,
     CONF_FILLER_MODEL,
     CONF_FILLER_PROMPT,
-    CONF_DISABLE_FUZZY_MATCHING,
+    DEFAULT_URL,
+    DEFAULT_KEEP_ALIVE,
+    DEFAULT_MODEL,
+    DEFAULT_PROMPT,
+    DEFAULT_NUM_CTX,
+    DEFAULT_MAX_HISTORY,
+    DEFAULT_FILLER_MODEL,
+    CONF_FILLER_PROMPT,
+    CONF_ENABLE_NATIVE_INTENTS,
+    CONF_ENABLE_FUZZY_MATCHING,
     DEFAULT_URL,
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MODEL,
@@ -34,6 +42,8 @@ from .const import (
     DEFAULT_MAX_HISTORY,
     DEFAULT_FILLER_MODEL,
     DEFAULT_FILLER_PROMPT,
+    DEFAULT_ENABLE_NATIVE_INTENTS,
+    DEFAULT_ENABLE_FUZZY_MATCHING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +76,6 @@ class HybridConversationAgent(
         self.history: dict[str, list[dict]] = {}
         self._client: ollama.AsyncClient | None = None
         self._client_url: str | None = None
-        self._lock = asyncio.Lock()
 
     @property
     def supported_languages(self) -> list[str] | Literal["*"]:
@@ -99,57 +108,46 @@ class HybridConversationAgent(
         conversation.async_unset_agent(self.hass, self.entry)
         await super().async_will_remove_from_hass()
 
+    async def _async_check_native_intent(self, user_input) -> conversation.ConversationResult | None:
+        """Check for native intent match using debug interface to filter fuzzy matches."""
+        default_agent = conversation.async_get_agent(self.hass)
+        if not default_agent or default_agent == self:
+            return None
+
+        # Use async_debug_recognize to peek at potential match details
+        debug_result = await default_agent.async_debug_recognize(user_input)
+        
+        if not debug_result or not debug_result.get("match"):
+            return None
+            
+        is_fuzzy = debug_result.get("fuzzy_match", False)
+        
+        # Check if fuzzy matching is enabled (default False since Phase 19)
+        enable_fuzzy = self.entry.options.get(CONF_ENABLE_FUZZY_MATCHING, DEFAULT_ENABLE_FUZZY_MATCHING)
+        
+        if is_fuzzy and not enable_fuzzy:
+            _LOGGER.debug("Ignoring fuzzy match for '%s' because fuzzy matching is disabled.", user_input.text)
+            return None
+            
+        # If we got here, it's a valid match we want to execute
+        return await default_agent.async_recognize_intent(user_input)
+
     async def _async_handle_message(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
+        self, user_input: conversation.ConversationInput, chat_log: conversation.ChatLog
     ) -> conversation.ConversationResult:
         """Process a sentence - called by base class async_process."""
         # 0. Fast Path: Try native intents first (turn on light, etc.)
         try:
-            default_agent = conversation.async_get_agent(self.hass)
-            if default_agent and default_agent != self:
-                disable_fuzzy = self.entry.options.get(CONF_DISABLE_FUZZY_MATCHING, False)
-                result = None
-
-                if disable_fuzzy:
-                    async with self._lock:
-                        # Safely toggle fuzzy matching on the shared agent
-                        old_fuzzy = getattr(default_agent, "fuzzy_matching", True)
-                        try:
-                            default_agent.fuzzy_matching = False
-                            result = await default_agent.async_recognize_intent(user_input)
-                        finally:
-                            default_agent.fuzzy_matching = old_fuzzy
-                else:
-                    # passing strict_intents_only=False to allow fuzzy matching if configured
-                    result = await default_agent.async_recognize_intent(user_input)
-                
-                # If we have a match
+            # Check if Native Intents are enabled
+            enable_native = self.entry.options.get(CONF_ENABLE_NATIVE_INTENTS, DEFAULT_ENABLE_NATIVE_INTENTS)
+            
+            if enable_native:
+                result = await self._async_check_native_intent(user_input)
                 if result:
-                   # 2. EXECUTE with TEMP ID (avoids polluting log if fails)
-                   temp_input = conversation.ConversationInput(
-                       text=user_input.text,
-                       context=user_input.context,
-                       conversation_id=f"_temp_{ulid.ulid_now()}", 
-                       device_id=user_input.device_id,
-                       language=user_input.language,
-                       agent_id=user_input.agent_id,
-                       satellite_id=user_input.satellite_id,
-                   )
-                   processed_result = await default_agent.internal_async_process(temp_input)
-                   
-                   # 3. Check Success
-                   if processed_result.response.response_type != intent.IntentResponseType.ERROR:
-                       # Fix ID so it looks like it processed the original input
-                       processed_result.conversation_id = user_input.conversation_id
-                       _LOGGER.debug("Native intent matched and executed: %s", processed_result.response.intent)
-                       return processed_result
-                   
-                   # If execution resulted in error, we fall through to LLM (ignoring the error log)
-                   _LOGGER.debug("Native intent matched but execution failed, falling back to LLM")
-        except Exception as e:
-            _LOGGER.debug("Native intent check failed: %s", e)
+                    return result
+
+        except Exception as err:
+            _LOGGER.debug("Native intent check failed: %s", err)
 
         # 1. Load Config
         settings = self.entry.options

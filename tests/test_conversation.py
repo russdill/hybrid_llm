@@ -56,34 +56,28 @@ async def test_native_intent_fast_path(hass, mock_ollama_client, mock_llm_api, m
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
         
-        # Mock async_recognize_intent (peek check)
-        mock_recognize_result = MagicMock()
-        mock_default.async_recognize_intent.return_value = mock_recognize_result
+        # Mock async_debug_recognize (exact match)
+        mock_default.async_debug_recognize.return_value = {
+            "match": True,
+            "fuzzy_match": False
+        }
         
-        # Mock internal_async_process (execution)
+        # Mock async_recognize_intent (execution)
         mock_native_result = MagicMock()
-        mock_native_result.response.intent = MagicMock()  # Indicates a native intent matched
+        mock_native_result.response.intent = MagicMock()
         mock_native_result.response.response_type = intent.IntentResponseType.ACTION_DONE
+        mock_native_result.conversation_id = user_input.conversation_id
         mock_native_result.response.speech = {"plain": {"speech": "Turned on the light"}}
-        mock_default.internal_async_process.return_value = mock_native_result
+        
+        mock_default.async_recognize_intent.return_value = mock_native_result
         
         mock_get_default.return_value = mock_default
         
         result = await agent._async_handle_message(user_input, mock_chat_log)
         
-        # Should have checked intent and then processed it
+        # Should have checked debug then execute
+        mock_default.async_debug_recognize.assert_called_once_with(user_input)
         mock_default.async_recognize_intent.assert_called_once_with(user_input)
-        
-        # Verify internal_async_process called with temp ID
-        assert mock_default.internal_async_process.called
-        args, _ = mock_default.internal_async_process.call_args
-        called_input = args[0]
-        assert called_input.text == user_input.text
-        assert called_input.conversation_id != user_input.conversation_id
-        assert called_input.conversation_id.startswith("_temp_")
-        
-        # Verify result has original ID restored
-        assert result.conversation_id == user_input.conversation_id
         
         # Should return native intent result
         assert result.response.intent is not None
@@ -127,6 +121,9 @@ async def test_llm_fallback_when_no_native_intent(hass, mock_ollama_client, mock
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
         
+        # Mock async_debug_recognize returning NO match (None or match=False)
+        mock_default.async_debug_recognize.return_value = None # or {"match": False}
+        
         # Mock async_recognize_intent returning None (no match)
         mock_default.async_recognize_intent.return_value = None
         
@@ -139,6 +136,11 @@ async def test_llm_fallback_when_no_native_intent(hass, mock_ollama_client, mock
             mock_get_result.return_value = mock_result
             
             result = await agent._async_handle_message(user_input, mock_chat_log)
+            
+            # verify debug was checked
+            mock_default.async_debug_recognize.assert_called_once_with(user_input)
+            # verify recognize not called
+            mock_default.async_recognize_intent.assert_not_called()
             
             # Should have called Ollama since no native intent matched
             assert mock_ollama_client.chat.called
@@ -172,6 +174,7 @@ async def test_ollama_process_streaming(hass, mock_ollama_client, mock_llm_api, 
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = None
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
 
@@ -225,6 +228,7 @@ async def test_speech_is_string_not_generator(hass, mock_ollama_client, mock_llm
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = None
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
 
@@ -300,6 +304,7 @@ async def test_tool_use_loop(hass, mock_ollama_client, mock_llm_api, mock_chat_l
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = None
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
 
@@ -384,6 +389,7 @@ async def test_filler_called_only_once_in_tool_loop(hass, mock_ollama_client, mo
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = None
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
         
@@ -399,49 +405,95 @@ async def test_filler_called_only_once_in_tool_loop(hass, mock_ollama_client, mo
     # Verify chat was called twice (once for tool call, once for final response)
     assert call_count[0] == 2, f"Chat should be called twice for tool loop, but was called {call_count[0]} times"
 
-async def test_disable_fuzzy_matching(hass: HomeAssistant, mock_ollama_client, mock_chat_log) -> None:
-    """Test disabling fuzzy matching toggles the agent property."""
-    from custom_components.hybrid_llm.const import CONF_DISABLE_FUZZY_MATCHING
+async def test_hybrid_config_options(hass: HomeAssistant, mock_ollama_client, mock_chat_log) -> None:
+    """Test native intents and fuzzy matching configuration options."""
+    from custom_components.hybrid_llm.const import CONF_ENABLE_NATIVE_INTENTS, CONF_ENABLE_FUZZY_MATCHING
     from custom_components.hybrid_llm.conversation import HybridConversationAgent
     
-    agent = HybridConversationAgent(hass, MockConfigEntry(options={CONF_DISABLE_FUZZY_MATCHING: True}))
+    # CASE 1: Disable Native Intents
+    agent = HybridConversationAgent(hass, MockConfigEntry(options={
+        CONF_ENABLE_NATIVE_INTENTS: False
+    }))
     
-    # Mock default agent
-    with patch(
-        "homeassistant.components.conversation.async_get_agent"
-    ) as mock_get_default:
+    with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
-        mock_default.fuzzy_matching = True # Initial state
-        
-        # Verify fuzzy_matching is False WHEN async_recognize_intent is called
-        # Verify fuzzy_matching is False WHEN async_recognize_intent is called
-        async def verify_fuzzy_during_call(*args, **kwargs):
-            assert mock_default.fuzzy_matching is False
-            return MagicMock() # Simulate MATCH
-            
-        mock_default.async_recognize_intent.side_effect = verify_fuzzy_during_call
-        
-        # Mock internal execution to succeed
-        mock_exec_result = MagicMock()
-        mock_exec_result.response.response_type = intent.IntentResponseType.ACTION_DONE
-        mock_default.internal_async_process.return_value = mock_exec_result
-
         mock_get_default.return_value = mock_default
         
         user_input = conversation.ConversationInput(
             text="Turn on light",
             context=MagicMock(),
-            conversation_id="test-convo",
+            conversation_id="test-convo-1",
             device_id=None,
             language="en",
             agent_id="homeassistant",
             satellite_id=None,
         )
         
-        # Call handle_message (expected to hit native fast path)
-        await agent._async_handle_message(user_input, mock_chat_log)
+        # Should NOT check native intent
+        # Mock result from chat log since it goes to LLM
+        # Patch _async_handle_chat_log to skip LLM execution
+        with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock) as mock_handle_chat:
+            with patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+                mock_get_result.return_value = MagicMock()
+                await agent._async_handle_message(user_input, mock_chat_log)
         
-        # Verify call happened
+        mock_default.async_recognize_intent.assert_not_called()
+
+    # CASE 2: Enable Native Intents, Enable Fuzzy (Default False) -> With Enable Fuzzy=False (Default)
+    # Refactored: We check async_debug_recognize first.
+    agent = HybridConversationAgent(hass, MockConfigEntry(options={
+        CONF_ENABLE_NATIVE_INTENTS: True,
+        CONF_ENABLE_FUZZY_MATCHING: False
+    }))
+
+    with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
+        mock_default = AsyncMock()
+        mock_get_default.return_value = mock_default
+        
+        # Simulate Debug Result: Fuzzy Match
+        mock_default.async_debug_recognize.return_value = {
+            "match": True,
+            "fuzzy_match": True
+        }
+        
+        # Since Fuzzy is Disabled in Options (False), logic should ignore it.
+        # Should NOT call recognise_intent
+        
+        # Patch result from chat log to avoid LLM error (and skip LLM exec)
+        with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock):
+            with patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+                mock_get_result.return_value = MagicMock()
+                await agent._async_handle_message(user_input, mock_chat_log)
+
+        # Debug was called
+        mock_default.async_debug_recognize.assert_called_once()
+        # Real intent was NOT called because fuzzy was filtered out
+        mock_default.async_recognize_intent.assert_not_called()
+
+    # CASE 3: Enable Native Intents, ENABLE Fuzzy Matching -> Accept Fuzzy
+    agent = HybridConversationAgent(hass, MockConfigEntry(options={
+        CONF_ENABLE_NATIVE_INTENTS: True,
+        CONF_ENABLE_FUZZY_MATCHING: True
+    }))
+
+    with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
+        mock_default = AsyncMock()
+        mock_get_default.return_value = mock_default
+        
+        # Simulate Debug Result: Fuzzy Match
+        mock_default.async_debug_recognize.return_value = {
+            "match": True,
+            "fuzzy_match": True
+        }
+        
+        # Real Intent Result
+        mock_exec = MagicMock()
+        mock_exec.response.response_type = intent.IntentResponseType.ACTION_DONE
+        mock_default.async_recognize_intent.return_value = mock_exec
+        
+        await agent._async_handle_message(user_input, mock_chat_log)
+
+        # Debug called
+        mock_default.async_debug_recognize.assert_called_once()
+        # Real intent called because filtering let it through
         mock_default.async_recognize_intent.assert_called_once()
-        # Verify it was restored
-        assert mock_default.fuzzy_matching is True

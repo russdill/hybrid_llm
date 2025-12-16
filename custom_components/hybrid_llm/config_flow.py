@@ -31,7 +31,8 @@ from .const import (
     CONF_THINK,
     CONF_FILLER_MODEL,
     CONF_FILLER_PROMPT,
-    CONF_DISABLE_FUZZY_MATCHING,
+    CONF_ENABLE_NATIVE_INTENTS,
+    CONF_ENABLE_FUZZY_MATCHING,
     DEFAULT_URL,
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MODEL,
@@ -40,6 +41,8 @@ from .const import (
     DEFAULT_MAX_HISTORY,
     DEFAULT_FILLER_MODEL,
     DEFAULT_FILLER_PROMPT,
+    DEFAULT_ENABLE_NATIVE_INTENTS,
+    DEFAULT_ENABLE_FUZZY_MATCHING,
     COMMON_MODELS,
 )
 
@@ -169,6 +172,16 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             errors=errors,
             data_schema=vol.Schema({
+                # Native Intents and Fuzzy Matching
+                vol.Required(
+                     CONF_ENABLE_NATIVE_INTENTS,
+                     default=options.get(CONF_ENABLE_NATIVE_INTENTS, DEFAULT_ENABLE_NATIVE_INTENTS)
+                ): BooleanSelector(),
+                vol.Required(
+                     CONF_ENABLE_FUZZY_MATCHING,
+                     default=options.get(CONF_ENABLE_FUZZY_MATCHING, DEFAULT_ENABLE_FUZZY_MATCHING)
+                ): BooleanSelector(),
+
                 # Connection
                 vol.Required(
                     CONF_URL, 
@@ -226,10 +239,6 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                     CONF_FILLER_PROMPT,
                     description={"suggested_value": options.get(CONF_FILLER_PROMPT, DEFAULT_FILLER_PROMPT)}
                 ): TemplateSelector(),
-                vol.Optional(
-                    CONF_DISABLE_FUZZY_MATCHING,
-                    description={"suggested_value": options.get(CONF_DISABLE_FUZZY_MATCHING, False)}
-                ): BooleanSelector(),
             })
         )
 
