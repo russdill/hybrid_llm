@@ -35,6 +35,7 @@
                     "think": "If enabled, the LLM will think before responding. This can improve response quality but may increase latency.",
                     "filler_model": "Small, fast model used to generate a brief 'checking...' phrase while the main model processes.",
                     "filler_prompt": "Prompt template for generating filler phrases.",
+                    "enable_native_intents": "If enabled, built-in intents (e.g. Turn On Light) are checked locally before using the LLM.",
                     "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle."
                 }
             },

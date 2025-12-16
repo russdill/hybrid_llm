@@ -130,8 +130,10 @@ class HybridConversationAgent(
             _LOGGER.debug("Ignoring fuzzy match for '%s' because fuzzy matching is disabled.", user_input.text)
             return None
             
-        # If we got here, it's a valid match we want to execute
-        return await default_agent.async_recognize_intent(user_input)
+        # If we got here, it's a valid match we want to execute.
+        # Delegate directly to the native agent's process method.
+        # This handles intent execution (turning on lights) AND response generation (templated speech).
+        return await default_agent.async_process(user_input)
 
     async def _async_handle_message(
         self, user_input: conversation.ConversationInput, chat_log: conversation.ChatLog
