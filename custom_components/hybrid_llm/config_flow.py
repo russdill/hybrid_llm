@@ -43,6 +43,7 @@ from .const import (
     DEFAULT_FILLER_PROMPT,
     DEFAULT_ENABLE_NATIVE_INTENTS,
     DEFAULT_ENABLE_FUZZY_MATCHING,
+    FILLER_MODEL_ECHO,
     COMMON_MODELS,
 )
 
@@ -162,6 +163,9 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
         # Retrieve installed models for populating choices
         installed = await _get_installed_models(current_url)
         model_choices = _get_model_choices(installed)
+        
+        # Filler model choices: Echo + installed models
+        filler_model_choices = [{"label": "Echo (Use prompt as filler)", "value": FILLER_MODEL_ECHO}] + model_choices
 
         # Get LLM APIs
         from homeassistant.helpers import llm
@@ -172,6 +176,12 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             errors=errors,
             data_schema=vol.Schema({
+                # Connection (Top as requested)
+                vol.Required(
+                    CONF_URL, 
+                    description={"suggested_value": options.get(CONF_URL, DEFAULT_URL)}
+                ): str,
+
                 # Native Intents and Fuzzy Matching
                 vol.Required(
                      CONF_ENABLE_NATIVE_INTENTS,
@@ -182,11 +192,20 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                      default=options.get(CONF_ENABLE_FUZZY_MATCHING, DEFAULT_ENABLE_FUZZY_MATCHING)
                 ): BooleanSelector(),
 
-                # Connection
+                # Filler Model (Before Main Model)
                 vol.Required(
-                    CONF_URL, 
-                    description={"suggested_value": options.get(CONF_URL, DEFAULT_URL)}
-                ): str,
+                    CONF_FILLER_MODEL,
+                    description={"suggested_value": options.get(CONF_FILLER_MODEL, DEFAULT_FILLER_MODEL)}
+                ): SelectSelector(SelectSelectorConfig(
+                    options=filler_model_choices,
+                    mode=SelectSelectorMode.DROPDOWN,
+                    custom_value=True
+                )),
+                vol.Optional(
+                    CONF_FILLER_PROMPT,
+                    description={"suggested_value": options.get(CONF_FILLER_PROMPT, DEFAULT_FILLER_PROMPT)}
+                ): TemplateSelector(),
+
                 # Main Model
                 vol.Required(
                     CONF_MODEL,
@@ -225,20 +244,6 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                     CONF_THINK,
                     description={"suggested_value": options.get(CONF_THINK, False)}
                 ): BooleanSelector(),
-
-                # Filler Model
-                vol.Required(
-                    CONF_FILLER_MODEL,
-                    description={"suggested_value": options.get(CONF_FILLER_MODEL, DEFAULT_FILLER_MODEL)}
-                ): SelectSelector(SelectSelectorConfig(
-                    options=model_choices,
-                    mode=SelectSelectorMode.DROPDOWN,
-                    custom_value=True
-                )),
-                vol.Optional(
-                    CONF_FILLER_PROMPT,
-                    description={"suggested_value": options.get(CONF_FILLER_PROMPT, DEFAULT_FILLER_PROMPT)}
-                ): TemplateSelector(),
             })
         )
 

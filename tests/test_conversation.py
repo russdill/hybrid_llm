@@ -497,3 +497,61 @@ async def test_hybrid_config_options(hass: HomeAssistant, mock_ollama_client, mo
         mock_default.async_debug_recognize.assert_called_once()
         # Real intent called because filtering let it through
         mock_default.async_recognize_intent.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_filler_echo_mode(hass, mock_ollama_client, mock_llm_api, mock_chat_log):
+    """Test filler in Echo mode returns rendered prompt without calling LLM."""
+    # Configure with Echo Mode and a custom prompt
+    config_entry = MockConfigEntry(options={
+        "filler_model": "echo",
+        "filler_prompt": "Echoing: {{ text }}"
+    })
+    agent = HybridConversationAgent(hass, config_entry)
+    
+    # Mock default agent (No match -> LLM)
+    with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
+        mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = None
+        mock_default.async_recognize_intent.return_value = None
+        mock_get_default.return_value = mock_default
+        
+        # Mock chat log result to avoid errors
+        with patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+            mock_get_result.return_value = MagicMock()
+            
+            # Mock chat stream so main loop runs
+            mock_ollama_client.chat.return_value = MagicMock()
+            
+            # Let's mock async_add_delta_content_stream to capture the generator
+            captured_content = []
+            
+            async def capture_stream(entity_id, stream_generator):
+                async for chunk in stream_generator:
+                    if chunk.get("role") == "assistant" and "content" in chunk:
+                        captured_content.append(chunk["content"])
+                yield MagicMock() # dummy yield for the async for loop
+                
+            mock_chat_log.async_add_delta_content_stream = capture_stream
+            
+            # Execute
+            await agent._async_handle_message(
+                conversation.ConversationInput(
+                    text="Hello World",
+                    context=MagicMock(),
+                    conversation_id="echo-id",
+                    device_id=None,
+                    language="en",
+                    agent_id="test_agent",
+                    satellite_id=None,
+                ),
+                mock_chat_log
+            )
+            
+            # Assertions
+            # 1. client.generate should NOT be called
+            mock_ollama_client.generate.assert_not_called()
+            
+            # 2. Filler text should be the rendered prompt ("Echoing: Hello World") + "... " suffix
+            expected = "Echoing: Hello World... "
+            assert any(expected in c for c in captured_content), f"Expected '{expected}' in {captured_content}"

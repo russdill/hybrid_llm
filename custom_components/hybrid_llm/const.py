@@ -25,6 +25,9 @@ DEFAULT_NUM_CTX: Final = 4096
 DEFAULT_MAX_HISTORY: Final = 10
 DEFAULT_FILLER_MODEL: Final = "qwen2:0.5b"
 DEFAULT_FILLER_PROMPT: Final = "User said: '{{ text }}'. Echo the subject with a 'checking' phrase. Max 4 words."
+
+FILLER_MODEL_ECHO: Final = "echo"
+
 DEFAULT_ENABLE_NATIVE_INTENTS: Final = True
 DEFAULT_ENABLE_FUZZY_MATCHING: Final = False
 

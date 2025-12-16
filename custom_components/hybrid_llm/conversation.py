@@ -44,6 +44,7 @@ from .const import (
     DEFAULT_FILLER_PROMPT,
     DEFAULT_ENABLE_NATIVE_INTENTS,
     DEFAULT_ENABLE_FUZZY_MATCHING,
+    FILLER_MODEL_ECHO,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -276,6 +277,13 @@ class HybridConversationAgent(
         
         _LOGGER.debug("Filler LLM request - model: %s, prompt: %s", filler_model, filler_prompt)
         
+        # Echo Mode: If configured to "echo", return the rendered prompt immediately
+        if filler_model == FILLER_MODEL_ECHO:
+            _LOGGER.debug("Filler in Echo Mode: returning prompt as filler")
+            # Only return if there is text (trim whitespace)
+            prompt_text = filler_prompt.strip()
+            return f"{prompt_text}... " if prompt_text else None
+
         try:
             filler_response = await client.generate(
                 model=filler_model,
