@@ -99,8 +99,8 @@ class HybridConversationAgent(
     async def _get_client(self, url: str) -> ollama.AsyncClient:
         """Get or create Ollama client in a non-blocking way."""
         if self._client is None or self._client_url != url:
-            # Client creation can block on SSL context load
-            self._client = await self.hass.async_add_executor_job(ollama.AsyncClient, url)
+            # Client creation can block on SSL context load unless verify=False
+            self._client = ollama.AsyncClient(host=url, verify=False)
             self._client_url = url
         return self._client
 

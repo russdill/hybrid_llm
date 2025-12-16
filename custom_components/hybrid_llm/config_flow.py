@@ -54,7 +54,7 @@ import ollama
 async def _get_installed_models(url: str) -> list[str]:
     """Fetch installed models from Ollama."""
     try:
-        client = ollama.AsyncClient(host=url)
+        client = ollama.AsyncClient(host=url, verify=False)
         response = await client.list()
         # response is dict with 'models' list
         # each model object has 'model' key (not 'name')
@@ -82,7 +82,7 @@ def _get_model_choices(installed: list[str]) -> list[dict]:
 async def _pull_model(hass, url: str, model: str):
     """Pull a model from Ollama."""
     try:
-        client = ollama.AsyncClient(host=url)
+        client = ollama.AsyncClient(host=url, verify=False)
         # Pull returns an async generator if stream=True
         async for progress in await client.pull(model=model, stream=True):
             pass # Keep task alive
