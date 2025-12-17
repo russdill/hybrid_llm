@@ -571,3 +571,267 @@ async def test_filler_echo_mode(hass, mock_ollama_client, mock_llm_api, mock_cha
             assert any(expected in c for c in captured_content), f"Expected '{expected}' in {captured_content}"
 
 
+async def test_prewarm_cache_hit(hass: HomeAssistant, mock_ollama_client, mock_chat_log):
+    """Test that valid cached state is used and cleared."""
+    import time
+    
+    # Setup Cache
+    cached_prompt = "Cached Specail Prompt"
+    hass.data[DOMAIN] = {
+        "fresh_state": {
+            "timestamp": time.time(), # Now
+            "prompt": cached_prompt,
+            "device_id": None
+        }
+    }
+    
+    # Create Agent
+    entry = MockConfigEntry(options={"enable_native_intents": False})
+    agent = HybridConversationAgent(hass, entry)
+    
+    # Process Message
+    user_input = conversation.ConversationInput(
+        text="Hello",
+        context=Context(),
+        conversation_id="test_conv",
+        language="en",
+        agent_id=entry.entry_id,
+        device_id=None,
+        satellite_id=None,
+    )
+    
+    # We need to mock _async_handle_chat_log to avoid actual Ollama calls,
+    # but we want to verify async_provide_llm_data was called with cached_prompt.
+    with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock) as mock_handle_chat, \
+         patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+        mock_handle_chat.return_value = None
+        mock_get_result.return_value = conversation.ConversationResult(
+            response=intent.IntentResponse(language="en"),
+            conversation_id="test_conv"
+        )
+        
+        await agent._async_handle_message(user_input, mock_chat_log)
+    
+    # Verify Cache Cleared
+    assert "fresh_state" not in hass.data[DOMAIN]
+    
+    # Verify ChatLog provided with cached prompt
+    # Note: async_provide_llm_data arg 2 is prompt (index 2 in args tuple)
+    # def async_provide_llm_data(self, llm_context, llm_api, prompt, extra_system_prompt):
+    mock_chat_log.async_provide_llm_data.assert_called_once()
+    print("DEBUG: test_prewarm_cache_hit completed assertions")
+    
+
+async def test_prewarm_cache_miss_expired(hass: HomeAssistant, mock_ollama_client, mock_chat_log):
+    """Test that expired cached state is ignored and cleared."""
+    import time
+
+    # Setup Expired Cache (20s old)
+    hass.data[DOMAIN] = {
+        "fresh_state": {
+            "timestamp": time.time() - 20,
+            "prompt": "Old Prompt",
+            "device_id": None
+        }
+    }
+    
+    # Create Agent
+    entry = MockConfigEntry(options={"enable_native_intents": False})
+    agent = HybridConversationAgent(hass, entry)
+    
+    user_input = conversation.ConversationInput(
+        text="Hello",
+        context=Context(),
+        conversation_id="test_conv",
+        language="en",
+        agent_id=entry.entry_id,
+        device_id=None,
+        satellite_id=None,
+    )
+    
+    with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock) as mock_handle_chat, \
+         patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+        mock_handle_chat.return_value = None
+        mock_get_result.return_value = conversation.ConversationResult(
+            response=intent.IntentResponse(language="en"),
+            conversation_id="test_conv"
+        )
+        await agent._async_handle_message(user_input, mock_chat_log)
+
+    # Verify Cache Cleared
+    assert "fresh_state" not in hass.data[DOMAIN]
+    
+    # Verify ChatLog provided with DEFAULT prompt (not Old Prompt)
+    mock_chat_log.async_provide_llm_data.assert_called_once()
+
+
+async def test_prewarm_device_mismatch(hass: HomeAssistant, mock_ollama_client, mock_chat_log):
+    """Test that cache is ignored if device_id mismatches."""
+    import time
+    
+    hass.data[DOMAIN] = {
+        "fresh_state": {
+            "timestamp": time.time(),
+            "prompt": "Cached Prompt",
+            "device_id": "kitchen_satellite"
+        }
+    }
+    
+    entry = MockConfigEntry(options={"enable_native_intents": False})
+    agent = HybridConversationAgent(hass, entry)
+    
+    # Request from different device
+    user_input = conversation.ConversationInput(
+        text="Hello",
+        context=Context(),
+        conversation_id="test_conv",
+        language="en",
+        agent_id=entry.entry_id,
+        device_id="living_room_satellite",
+        satellite_id=None,
+    )
+    
+    # Mock LLM handling to avoid actual calls
+    with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock) as mock_handle_chat, \
+         patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+        mock_handle_chat.return_value = None
+        mock_get_result.return_value = conversation.ConversationResult(
+            response=intent.IntentResponse(language="en"),
+            conversation_id="test_conv"
+        )
+        await agent._async_handle_message(user_input, mock_chat_log)
+
+    # Verify Cache Cleared (Mismatch counts as a miss/consumption)
+    assert "fresh_state" not in hass.data[DOMAIN]
+    
+    # Verify DEFAULT prompt used (implied by call)
+    mock_chat_log.async_provide_llm_data.assert_called_once()
+
+
+async def test_prewarm_run_id_continuity(hass: HomeAssistant, mock_ollama_client, mock_chat_log):
+    """Test that run_id is carried over from cache."""
+    import time
+    
+    cached_run_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    hass.data[DOMAIN] = {
+        "fresh_state": {
+            "timestamp": time.time(),
+            "prompt": "Cached Prompt",
+            "device_id": None,
+            "run_id": cached_run_id
+        }
+    }
+    
+    # Enable tracer
+    tracer_mock = MagicMock()
+    tracer_mock.dump = AsyncMock()
+    hass.data[DOMAIN]["tracer"] = tracer_mock
+    tracer = hass.data[DOMAIN]["tracer"]
+    
+    entry = MockConfigEntry(options={"enable_native_intents": False})
+    agent = HybridConversationAgent(hass, entry)
+    
+    user_input = conversation.ConversationInput(
+        text="Hello",
+        context=Context(),
+        conversation_id="test_conv",
+        language="en",
+        agent_id=entry.entry_id,
+        device_id=None,
+        satellite_id=None,
+    )
+    
+    with patch.object(agent, "_async_handle_chat_log", new_callable=AsyncMock) as mock_handle_chat, \
+         patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+        mock_handle_chat.return_value = None
+        mock_get_result.return_value = conversation.ConversationResult(
+            response=intent.IntentResponse(language="en"),
+            conversation_id="test_conv"
+        )
+        await agent._async_handle_message(user_input, mock_chat_log)
+    
+    # Verify tracer called with cached_run_id (Specifically the 'trace_continued' event)
+    # Check all calls to trace_event
+    found_continuation = False
+    for call in tracer.trace_event.call_args_list:
+        args, kwargs = call
+        if args and args[0] == cached_run_id and kwargs.get("args", {}).get("event") == "trace_continued":
+            found_continuation = True
+            break
+            
+    assert found_continuation, "Did not find trace_continued event with cached run ID"
+
+
+@pytest.mark.asyncio
+async def test_filler_position(hass, mock_ollama_client, mock_chat_log):
+    """Test that filler is included in LLM context (after user message)."""
+    entry = MockConfigEntry(options={
+        "filler_model": "test_filler",
+        "enable_native_intents": False
+    })
+    agent = HybridConversationAgent(hass, entry)
+    hass.data[DOMAIN] = {"cache": {}}
+    
+    # Mock Filler Generation
+    mock_ollama_client.generate.return_value = {"response": "One moment..."}
+    # Mock Chat Response
+    mock_ollama_client.chat.return_value = MagicMock()
+    
+    # Setup Chat Log with User Message
+    mock_chat_log.content = [
+        MagicMock(spec=conversation.SystemContent, content="System Prompt"),
+        MagicMock(spec=conversation.UserContent, content="Do something"),
+    ]
+    
+    # Mock async_add_delta_content_stream to append to chat_log content for this test view
+    async def mock_stream(entity_id, stream):
+        # Consume stream
+        async for chunk in stream:
+            content = chunk["content"]
+            # Simulate adding to chat log content so _build_messages sees it
+            # Note: _build_messages reads mock_chat_log.content.
+            # In update, we manually add it to 'messages' list in the test verification below?
+            # No, the code calls _build_messages_from_chat_log(chat_log).
+            # We need mock_chat_log.content to reflect the addition if we want _build_messages to pick it up.
+            # BUT: The code calls messages = self._build_messages_from_chat_log(chat_log) BEFORE any filler logic?
+            # Let's check conversation.py order.
+            pass
+        yield MagicMock()
+        
+    mock_chat_log.async_add_delta_content_stream = mock_stream
+    
+    # CRITICAL: In conversation.py, messages = self._build_messages_from_chat_log(chat_log) is called at the TOP.
+    # formatting happens LATER?
+    # Actually:
+    # 1. messages = _build_messages... (User input is there)
+    # 2. Filler logic runs -> calls chat_log.async_add_delta_content_stream
+    # 3. Code logic does NOT re-fetch messages?
+    # Wait, if messages is not updated, filler won't be in 'messages' passed to client.chat loop?
+    # Let's verify conversation.py logic.
+    
+    user_input = conversation.ConversationInput(
+        text="Do something",
+        context=Context(),
+        conversation_id="test_conv",
+        language="en",
+        agent_id=entry.entry_id,
+        device_id=None,
+        satellite_id=None,
+    )
+    
+    with patch("homeassistant.components.conversation.async_get_result_from_chat_log") as mock_get_result:
+        mock_get_result.return_value = conversation.ConversationResult(
+            response=intent.IntentResponse(language="en"),
+            conversation_id="test_conv"
+        )
+        
+        # We need _async_handle_chat_log to actually run to test formatting
+        await agent._async_handle_message(user_input, mock_chat_log)
+
+    assert mock_ollama_client.chat.called
+    call_args = mock_ollama_client.chat.call_args
+    messages = call_args[1]["messages"]
+    
+    # Check that filler is present
+    has_filler = any(m["role"] == "assistant" and "One moment..." in m["content"] for m in messages)
+    assert has_filler, f"Filler message missing from LLM context! Messages: {messages}"

@@ -27,7 +27,8 @@
                     "filler_prompt": "Filler Prompt",
                     "enable_native_intents": "Enable Native Intents",
                     "enable_fuzzy_matching": "Enable Fuzzy Matching for Intents",
-                    "enable_tracer": "Enable Performance Tracing"
+                    "enable_tracer": "Enable Performance Tracing",
+                    "satellite_entities": "Satellite Wake Word Sensors"
                 },
                 "data_description": {
                     "prompt": "Instruct how the LLM should respond. This can be a template.",
@@ -38,7 +39,8 @@
                     "filler_prompt": "Prompt template for generating filler phrases.",
                     "enable_native_intents": "If enabled, built-in intents (e.g. Turn On Light) are checked locally before using the LLM.",
                     "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle.",
-                    "enable_tracer": "If enabled, detailed performance timelines (JSON) will be saved to /config/traces/."
+                    "enable_tracer": "If enabled, detailed performance timelines (JSON) will be saved to /config/traces/.",
+                    "satellite_entities": "Select the 'Assist in Progress' binary sensors of your satellites. The pre-warmer will trigger when these turn on."
                 }
             },
             "download": {

@@ -33,6 +33,7 @@ DEFAULT_ENABLE_NATIVE_INTENTS: Final = True
 DEFAULT_ENABLE_FUZZY_MATCHING: Final = False
 DEFAULT_ENABLE_TRACER: Final = False
 
+
 COMMON_MODELS: Final = [
     "alfred",
     "all-minilm",

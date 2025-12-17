@@ -24,7 +24,25 @@ class PerformanceTracer:
 
     def start_trace(self, run_id: str):
         """Initialize a trace buffer for a specific run ID."""
+        self._prune_buffers()
         self._buffers[run_id] = []
+
+    def _prune_buffers(self):
+        """Remove buffers older than 5 minutes to prevent memory leaks."""
+        now = time.time()
+        # Find stale IDs
+        stale_ids = []
+        for rid, events in self._buffers.items():
+            if not events:
+                continue
+            # Check timestamp of first event
+            first_ts = events[0].get("ts", 0) / 1000000
+            if now - first_ts > 300: # 5 minutes
+                stale_ids.append(rid)
+        
+        for rid in stale_ids:
+            _LOGGER.debug(f"Pruning stale trace buffer: {rid}")
+            del self._buffers[rid]
 
     def trace_event(
         self,
@@ -53,18 +71,26 @@ class PerformanceTracer:
         }
         self._buffers[run_id].append(event)
 
-    def dump(self, run_id: str):
-        """Dump the buffered events to a file."""
+    async def dump(self, hass: Any, run_id: str, clear_buffer: bool = True):
+        """Dump the buffered events to a file (async)."""
         if run_id not in self._buffers:
             return
 
-        events = self._buffers.pop(run_id)
+        if clear_buffer:
+            events = self._buffers.pop(run_id)
+        else:
+            events = list(self._buffers[run_id])
+            
         if not events:
             return
 
         filename = f"trace_{run_id}.json"
         filepath = os.path.join(self._trace_dir, filename)
         
+        await hass.async_add_executor_job(self._write_trace, filepath, events)
+
+    def _write_trace(self, filepath: str, events: List[Dict[str, Any]]):
+        """Write events to file (blocking)."""
         try:
             with open(filepath, "w") as f:
                 json.dump(events, f, indent=2)

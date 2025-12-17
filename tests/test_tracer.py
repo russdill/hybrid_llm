@@ -6,16 +6,23 @@ from unittest.mock import MagicMock, patch
 
 from custom_components.hybrid_llm.tracer import PerformanceTracer
 
-def test_tracer_buffered_dump(tmp_path):
+@pytest.mark.asyncio
+async def test_tracer_buffered_dump(tmp_path):
     """Test standard trace buffering and dumping."""
     tracer = PerformanceTracer(str(tmp_path))
     run_id = "run_123"
+    
+    # Mock hass
+    mock_hass = MagicMock()
+    async def mock_async_add_executor_job(target, *args):
+        return target(*args)
+    mock_hass.async_add_executor_job.side_effect = mock_async_add_executor_job
     
     tracer.start_trace(run_id)
     tracer.trace_event(run_id, "Test Event", "B", "category1", timestamp=100.0)
     tracer.trace_event(run_id, "Test Event", "E", "category1", timestamp=101.0)
     
-    tracer.dump(run_id)
+    await tracer.dump(mock_hass, run_id)
     
     trace_file = tmp_path / f"trace_{run_id}.json"
     assert trace_file.exists()
@@ -30,10 +37,13 @@ def test_tracer_buffered_dump(tmp_path):
     
     assert events[1]["ph"] == "E"
 
-def test_tracer_ignore_unknown_run(tmp_path):
+@pytest.mark.asyncio
+async def test_tracer_ignore_unknown_run(tmp_path):
     """Test ignoring events for unknown runs."""
     tracer = PerformanceTracer(str(tmp_path))
+    mock_hass = MagicMock()
+    
     tracer.trace_event("unknown_id", "Event", "i")
-    tracer.dump("unknown_id")
+    await tracer.dump(mock_hass, "unknown_id")
     
     assert not any(tmp_path.iterdir())

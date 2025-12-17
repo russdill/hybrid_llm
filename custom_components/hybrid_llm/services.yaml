@@ -1,0 +1,10 @@
+trigger_prewarm:
+  name: Trigger Pre-warm
+  description: Manually triggers the model pre-warming process, caching the system prompt and context.
+  fields:
+    device_id:
+      name: Device ID
+      description: The device ID to generate context for. Specificity allows for location-aware prompts.
+      required: false
+      selector:
+        device:

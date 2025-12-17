@@ -248,7 +248,6 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                     description={"suggested_value": options.get(CONF_THINK, False)}
                 ): BooleanSelector(),
                 
-                # Performance Tracing
                 vol.Required(
                     CONF_ENABLE_TRACER,
                     default=options.get(CONF_ENABLE_TRACER, DEFAULT_ENABLE_TRACER)
