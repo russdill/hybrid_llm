@@ -14,6 +14,7 @@ CONF_FILLER_MODEL: Final = "filler_model"
 CONF_FILLER_PROMPT: Final = "filler_prompt"
 CONF_ENABLE_NATIVE_INTENTS: Final = "enable_native_intents"
 CONF_ENABLE_FUZZY_MATCHING: Final = "enable_fuzzy_matching"
+CONF_ENABLE_TRACER: Final = "enable_tracer"
 
 from homeassistant.helpers import llm
 
@@ -30,6 +31,7 @@ FILLER_MODEL_ECHO: Final = "echo"
 
 DEFAULT_ENABLE_NATIVE_INTENTS: Final = True
 DEFAULT_ENABLE_FUZZY_MATCHING: Final = False
+DEFAULT_ENABLE_TRACER: Final = False
 
 COMMON_MODELS: Final = [
     "alfred",

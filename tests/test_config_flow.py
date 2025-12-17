@@ -45,6 +45,7 @@ async def test_form(hass: HomeAssistant) -> None:
 
 async def test_options_flow(hass: HomeAssistant) -> None:
     """Test options flow happy path (models installed)."""
+    from custom_components.hybrid_llm.const import CONF_ENABLE_NATIVE_INTENTS, CONF_ENABLE_FUZZY_MATCHING, CONF_ENABLE_TRACER
     hass.config.components.add("conversation")
     
     config_entry = MockConfigEntry(
@@ -69,7 +70,10 @@ async def test_options_flow(hass: HomeAssistant) -> None:
             user_input={
                 CONF_URL: "http://test-url",
                 CONF_MODEL: "test-model",
-                CONF_FILLER_MODEL: "test-filler"
+                CONF_FILLER_MODEL: "test-filler",
+                CONF_ENABLE_NATIVE_INTENTS: True,
+                CONF_ENABLE_FUZZY_MATCHING: False,
+                CONF_ENABLE_TRACER: False,
             }
         )
         

@@ -26,7 +26,8 @@
                     "filler_model": "Filler Model",
                     "filler_prompt": "Filler Prompt",
                     "enable_native_intents": "Enable Native Intents",
-                    "enable_fuzzy_matching": "Enable Fuzzy Matching for Intents"
+                    "enable_fuzzy_matching": "Enable Fuzzy Matching for Intents",
+                    "enable_tracer": "Enable Performance Tracing"
                 },
                 "data_description": {
                     "prompt": "Instruct how the LLM should respond. This can be a template.",
@@ -36,7 +37,8 @@
                     "filler_model": "Small, fast model used to generate a brief 'checking...' phrase while the main model processes.",
                     "filler_prompt": "Prompt template for generating filler phrases.",
                     "enable_native_intents": "If enabled, built-in intents (e.g. Turn On Light) are checked locally before using the LLM.",
-                    "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle."
+                    "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle.",
+                    "enable_tracer": "If enabled, detailed performance timelines (JSON) will be saved to /config/traces/."
                 }
             },
             "download": {

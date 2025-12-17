@@ -71,6 +71,7 @@ async def test_ollama_connection_error(hass: HomeAssistant, agent, mock_ollama_c
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = {"match": False}
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
 
@@ -99,6 +100,7 @@ async def test_ollama_500_error(hass: HomeAssistant, agent, mock_ollama_client, 
     # Mock default agent to NOT match any intent (force LLM path)
     with patch("homeassistant.components.conversation.async_get_agent") as mock_get_default:
         mock_default = AsyncMock()
+        mock_default.async_debug_recognize.return_value = {"match": False}
         mock_default.async_recognize_intent.return_value = None
         mock_get_default.return_value = mock_default
 

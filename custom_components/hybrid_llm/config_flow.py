@@ -41,8 +41,11 @@ from .const import (
     DEFAULT_MAX_HISTORY,
     DEFAULT_FILLER_MODEL,
     DEFAULT_FILLER_PROMPT,
+    DEFAULT_FILLER_PROMPT,
     DEFAULT_ENABLE_NATIVE_INTENTS,
     DEFAULT_ENABLE_FUZZY_MATCHING,
+    DEFAULT_ENABLE_TRACER,
+    CONF_ENABLE_TRACER,
     FILLER_MODEL_ECHO,
     COMMON_MODELS,
 )
@@ -243,6 +246,12 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_THINK,
                     description={"suggested_value": options.get(CONF_THINK, False)}
+                ): BooleanSelector(),
+                
+                # Performance Tracing
+                vol.Required(
+                    CONF_ENABLE_TRACER,
+                    default=options.get(CONF_ENABLE_TRACER, DEFAULT_ENABLE_TRACER)
                 ): BooleanSelector(),
             })
         )

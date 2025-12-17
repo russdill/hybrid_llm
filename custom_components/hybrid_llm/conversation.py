@@ -192,6 +192,9 @@ class HybridConversationAgent(
 
         client = await self._get_client(url)
 
+        # Get tracer
+        tracer = self.hass.data.get(DOMAIN, {}).get("tracer")
+        
         # Build message history from chat_log
         messages = self._build_messages_from_chat_log(chat_log, max_history)
         
@@ -208,7 +211,14 @@ class HybridConversationAgent(
             ]
 
         # Generate and stream filler BEFORE the main loop (only once)
+        if tracer:
+            tracer.trace_event(user_input.conversation_id, "Filler Inference", "B", "hybrid_llm")
+            
         filler_text = await self._generate_filler(client, filler_model, filler_prompt_template, user_input)
+        
+        if tracer:
+            tracer.trace_event(user_input.conversation_id, "Filler Inference", "E", "hybrid_llm")
+            
         if filler_text:
             async def _filler_stream():
                 yield {"role": "assistant", "content": filler_text}
@@ -225,6 +235,9 @@ class HybridConversationAgent(
                 _iteration, model, messages, tools
             )
             
+            if tracer:
+                tracer.trace_event(user_input.conversation_id, f"Main LLM Inference {_iteration}", "B", "hybrid_llm")
+            
             try:
                 response_generator = await client.chat(
                     model=model,
@@ -236,18 +249,23 @@ class HybridConversationAgent(
                     think=settings.get(CONF_THINK),
                 )
             except (ollama.RequestError, ollama.ResponseError) as err:
-                _LOGGER.error("Unexpected error talking to Ollama server: %s", err)
-                raise HomeAssistantError(
-                    f"Sorry, I had a problem talking to the Ollama server: {err}"
-                ) from err
+                 if tracer:
+                     tracer.trace_event(user_input.conversation_id, f"Main LLM Inference {_iteration}", "E", "hybrid_llm")
+                 _LOGGER.error("Unexpected error talking to Ollama server: %s", err)
+                 raise HomeAssistantError(
+                     f"Sorry, I had a problem talking to the Ollama server: {err}"
+                 ) from err
 
             # Stream response through chat_log
             async for content in chat_log.async_add_delta_content_stream(
                 self.entity_id,
-                self._transform_stream(response_generator),
+                self._transform_stream(response_generator, user_input.conversation_id, tracer, _iteration),
             ):
                 # Content is collected by chat_log automatically
                 pass
+            
+            if tracer:
+                tracer.trace_event(user_input.conversation_id, f"Main LLM Inference {_iteration}", "E", "hybrid_llm")
 
             # Check if there are unresolved tool calls
             if not chat_log.unresponded_tool_results:
@@ -303,10 +321,19 @@ class HybridConversationAgent(
     async def _transform_stream(
         self,
         response_generator,
+        run_id: str = None,
+        tracer = None,
+        iteration: int = 0
     ) -> AsyncGenerator[conversation.AssistantContentDeltaDict, None]:
         """Transform Ollama stream to HA delta format."""
         full_response = []
+        first_token = True
+        
         async for chunk in response_generator:
+            if first_token and tracer and run_id:
+                tracer.trace_event(run_id, f"First Token {iteration}", "i", "hybrid_llm")
+                first_token = False
+                
             message = chunk.get("message", {})
             delta: conversation.AssistantContentDeltaDict = {}
 

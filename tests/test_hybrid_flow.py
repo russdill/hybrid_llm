@@ -92,17 +92,17 @@ async def test_hybrid_flow_routing(
         
         if test_case["intent_match"]:
             # Simulate successful native matching
-            mock_recognize_result = MagicMock()
-            mock_default.async_recognize_intent.return_value = mock_recognize_result
+            mock_default.async_debug_recognize.return_value = {
+                "match": True, 
+                "fuzzy_match": False
+            }
             
-            mock_native_result = MagicMock()
-            mock_native_result.response.intent = MagicMock()
-            mock_native_result.response.response_type = intent.IntentResponseType.ACTION_DONE
-            mock_native_result.response.speech = {"plain": {"speech": test_case["response_speech"]}}
-            mock_default.internal_async_process.return_value = mock_native_result
+            mock_process_result = MagicMock()
+            mock_process_result.response.speech = {"plain": {"speech": test_case["response_speech"]}}
+            mock_default.async_process.return_value = mock_process_result
         else:
-            # Simulate no match or error
-            mock_default.async_recognize_intent.return_value = None
+            # Simulate no match
+            mock_default.async_debug_recognize.return_value = {"match": False}
             
         mock_get_default.return_value = mock_default
 
@@ -125,9 +125,11 @@ async def test_hybrid_flow_routing(
             # Assertions
             if test_case["expect_llm"]:
                 assert mock_ollama_client.chat.called, f"LLM should have been called for '{test_case['text']}'"
-                mock_default.internal_async_process.assert_not_called()
+                # For no match, we just don't call process
+                mock_default.async_process.assert_not_called()
             else:
                 assert not mock_ollama_client.chat.called, f"LLM should NOT have been called for '{test_case['text']}'"
-                mock_default.internal_async_process.assert_called_once()
+                # For successful match, we call process
+                mock_default.async_process.assert_called_once()
             
             assert result.response.speech["plain"]["speech"] == test_case["response_speech"]
