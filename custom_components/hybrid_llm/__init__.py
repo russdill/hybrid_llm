@@ -2,13 +2,13 @@
 import logging
 import ollama
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, Event, Context
-from homeassistant.const import Platform, EVENT_HOMEASSISTANT_START
-from homeassistant.helpers import intent
+from homeassistant.core import HomeAssistant, Event
+from homeassistant.const import Platform, CONF_URL
+
 from homeassistant.util import ulid
 from .const import (
     DOMAIN,
-    CONF_URL,
+
     CONF_MODEL,
     CONF_PROMPT,
     DEFAULT_URL,
@@ -19,6 +19,10 @@ from .const import (
     CONF_LLM_HASS_API,
     CONF_NUM_CTX,
     DEFAULT_NUM_CTX,
+    CONF_ENABLE_PREWARM,
+    DEFAULT_ENABLE_PREWARM,
+    CONF_FILLER_MODEL,
+    FILLER_MODEL_ECHO,
 )
 from .helpers import convert_tool_to_ollama
 
@@ -112,14 +116,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "device_id": device_id
         }
         
+        # Generate run_id in outer scope so it's accessible to tracer.dump
+        run_id = ulid.ulid()
+        hass.data[DOMAIN]["fresh_state"]["run_id"] = run_id
+
         # 3. Fire-and-forget Pre-warm request
         # CRITICAL: Use chat() with system message to match KV Cache key
         # If we used generate(), the prefix wouldn't match the chat template.
         async def send_prewarm():
-            run_id = ulid.ulid()
-            # Update fresh_state with the run_id
-            hass.data[DOMAIN]["fresh_state"]["run_id"] = run_id
-            
             if tracer:
                 tracer.start_trace(run_id)
                 tracer.trace_event(run_id, "LLM Pre-warm", "B", "hybrid_llm", args={"device_id": device_id})
@@ -136,25 +140,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     keep_alive="5m"
                 )
                 
-                # Log detailed stats
-                total_duration = response.get("total_duration", 0) / 10**9
-                load_duration = response.get("load_duration", 0) / 10**9
-                prompt_eval_duration = response.get("prompt_eval_duration", 0) / 10**9
-                prompt_eval_count = response.get("prompt_eval_count", 0)
+                # Log detailed stats (Safety check for None)
+                total_duration = (response.get("total_duration") or 0) / 10**9
+                load_duration = (response.get("load_duration") or 0) / 10**9
+                prompt_eval_duration = (response.get("prompt_eval_duration") or 0) / 10**9
+                prompt_eval_count = response.get("prompt_eval_count") or 0
                 
-                _LOGGER.debug(
-                    f"Pre-warm complete. Total: {total_duration:.3f}s, "
-                    f"Load: {load_duration:.3f}s, "
-                    f"Prompt Eval: {prompt_eval_duration:.3f}s ({prompt_eval_count} tokens)"
-                )
-            except Exception as e:
-                _LOGGER.warning(f"Pre-warm HTTP request failed: {e}")
-            
-            if tracer:
-                 tracer.trace_event(run_id, "LLM Pre-warm", "E", "hybrid_llm")
-                 await tracer.dump(hass, run_id, clear_buffer=False)
+                _LOGGER.debug(f"Pre-warm complete. Total: {total_duration:.3f}s, Load: {load_duration:.3f}s, Prompt Eval: {prompt_eval_duration:.3f}s ({prompt_eval_count} tokens)")
 
-        hass.async_create_task(send_prewarm())
+                if tracer:
+                    tracer.trace_event(run_id, "LLM Pre-warm", "E", "hybrid_llm")
+
+            except Exception as e:
+                _LOGGER.warning(f"Failed to reach Ollama during pre-warm: {e}")
+                if tracer:
+                    tracer.trace_event(run_id, "LLM Pre-warm", "E", "hybrid_llm", args={"error": str(e)})
+
+        # Pre-warm Filler Model (Concurrent)
+        async def send_filler_prewarm():
+            filler_model = entry.options.get(CONF_FILLER_MODEL)
+            if not filler_model or filler_model == FILLER_MODEL_ECHO:
+                return
+
+            try:
+                client = ollama.AsyncClient(host=url, verify=False)
+                # Use generate() for filler (matches conversation.py)
+                response = await client.generate(
+                    model=filler_model,
+                    prompt="",
+                    options={"num_predict": 0},
+                    keep_alive="5m"
+                )
+                
+                total_duration = (response.get("total_duration") or 0) / 10**9
+                load_duration = (response.get("load_duration") or 0) / 10**9
+                _LOGGER.debug(f"Filler pre-warm complete ({filler_model}). Total: {total_duration:.3f}s, Load: {load_duration:.3f}s")
+                
+            except Exception as e:
+                _LOGGER.warning(f"Failed to pre-warm filler model: {e}")
+
+        # Run both pre-warms currently
+        import asyncio
+        await asyncio.gather(send_filler_prewarm(), send_prewarm())
+        
+        if tracer:
+            await tracer.dump(hass, run_id, clear_buffer=False)
 
     # Register Service
     async def handle_trigger_prewarm(call):
@@ -162,46 +192,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_id = call.data.get("device_id")
         await async_trigger_prewarm(device_id)
 
-    hass.services.async_register(DOMAIN, "trigger_prewarm", handle_trigger_prewarm)
+    enable_prewarm = entry.options.get(CONF_ENABLE_PREWARM, DEFAULT_ENABLE_PREWARM)
     
-    # Register Satellite Monitors
-    from homeassistant.helpers.event import async_track_state_change_event
-    from homeassistant.const import STATE_ON
-    from homeassistant.helpers import device_registry as dr, entity_registry as er
-    
-
-    
-    # Dynamic Discovery: Listen to all state changes for assist_satellite domain
-    # This covers entities that exist now AND ones that come later (discovery/init order safe)
-    async def handle_satellite_state_change(event: Event):
-        # Filter for assist_satellite domain
-        entity_id = event.data.get("entity_id")
-        if not entity_id or not entity_id.startswith("assist_satellite."):
-            return
-
-        new_state = event.data.get("new_state")
-        if not new_state:
-            return
-
-        # Assist Satellite states: 'listening'
-        # Wyoming/Binary Sensor: 'on'
-        active_states = {STATE_ON, "listening"}
+    if enable_prewarm:
+        hass.services.async_register(DOMAIN, "trigger_prewarm", handle_trigger_prewarm)
         
-        if new_state.state in active_states:
-            _LOGGER.debug(f"Satellite {entity_id} woke up (state: {new_state.state})")
+        # Register Satellite Monitors
+        from homeassistant.helpers import entity_registry as er
+        
+        async def satellite_state_listener(event: Event):
+            """Listen for all state changes to capture late-loading satellites."""
+            entity_id = event.data.get("entity_id")
+            new_state = event.data.get("new_state")
             
-            # Resolve Device ID
-            device_id = None
-            ent_reg = er.async_get(hass)
-            entity_entry = ent_reg.async_get(entity_id)
-            if entity_entry and entity_entry.device_id:
-                    device_id = entity_entry.device_id
-            
-            await async_trigger_prewarm(device_id)
+            if not entity_id or not new_state:
+                return
 
-    # Listen to ALL state changes on the bus, but filter inside
-    from homeassistant.const import EVENT_STATE_CHANGED
-    entry.async_on_unload(hass.bus.async_listen(EVENT_STATE_CHANGED, handle_satellite_state_change))
+            # Check domain (Strictly assist_satellite)
+            if not entity_id.startswith("assist_satellite."):
+                return
+            
+            # Helper to check if entity belongs to assist_satellite domain (more robust check)
+            domain = entity_id.split(".", 1)[0]
+            if domain != "assist_satellite":
+                return
+
+            if not new_state:
+                return
+
+            # Assist Satellite states: 'listening'
+            active_states = {"listening"}
+            
+            if new_state.state in active_states:
+                 _LOGGER.debug(f"Satellite {entity_id} woke up (state: {new_state.state})")
+                 
+                 # Resolve Device ID
+                 er_entry = er.async_get(hass).async_get(entity_id)
+                 if er_entry and er_entry.device_id:
+                     await async_trigger_prewarm(er_entry.device_id)
+
+        # Listen to ALL state changes to catch dynamically added satellites
+        from homeassistant.const import EVENT_STATE_CHANGED
+        entry.async_on_unload(
+            hass.bus.async_listen(EVENT_STATE_CHANGED, satellite_state_listener)
+        )
+    else:
+        _LOGGER.debug("Pre-warming is disabled in configuration.")
 
     await hass.config_entries.async_forward_entry_setups(entry, [Platform.CONVERSATION])
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))

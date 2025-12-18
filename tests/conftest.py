@@ -1,8 +1,8 @@
 """Fixtures for testing."""
-import sys
+
 import pytest
 from unittest.mock import AsyncMock, patch
-from homeassistant.core import HomeAssistant
+
 from homeassistant.setup import async_setup_component
 
 
@@ -69,4 +69,34 @@ async def setup_dependencies(hass):
     assert await async_setup_component(hass, "conversation", {})
     assert await async_setup_component(hass, "media_player", {})
     
+    
     return
+
+@pytest.fixture
+def mock_chat_log():
+    """Create a mock ChatLog."""
+    from unittest.mock import MagicMock, AsyncMock
+    from homeassistant.components import conversation
+    chat_log = MagicMock(spec=conversation.ChatLog)
+    chat_log.llm_api = None
+    chat_log.content = []
+    chat_log.unresponded_tool_results = False
+    
+    # Mock async_provide_llm_data
+    chat_log.async_provide_llm_data = AsyncMock()
+    
+    # Mock async_add_delta_content_stream to collect deltas
+    collected_content = []
+    
+    async def mock_add_delta_stream(agent_id, stream):
+        async for delta in stream:
+            if content := delta.get("content"):
+                collected_content.append(content)
+            yield MagicMock(content="".join(collected_content))
+    
+    chat_log.async_add_delta_content_stream = mock_add_delta_stream
+    chat_log._collected_content = collected_content
+    chat_log.conversation_id = "test-conversation-id"
+    
+    return chat_log
+

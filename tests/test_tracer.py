@@ -1,8 +1,7 @@
 """Tests for PerformanceTracer."""
 import json
-import os
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from custom_components.hybrid_llm.tracer import PerformanceTracer
 

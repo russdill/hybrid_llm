@@ -3,18 +3,20 @@ from typing import Literal, AsyncGenerator, Any
 import logging
 import ollama
 import json
+import asyncio
+
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import llm, template, intent
+from homeassistant.helpers import llm, template
 from homeassistant.util import ulid
-from homeassistant.const import MATCH_ALL
+from homeassistant.const import MATCH_ALL, CONF_URL
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 
 from .const import (
     DOMAIN,
-    CONF_URL,
+
     CONF_KEEP_ALIVE,
     CONF_MODEL,
     CONF_PROMPT,
@@ -24,14 +26,7 @@ from .const import (
     CONF_THINK,
     CONF_FILLER_MODEL,
     CONF_FILLER_PROMPT,
-    DEFAULT_URL,
-    DEFAULT_KEEP_ALIVE,
-    DEFAULT_MODEL,
-    DEFAULT_PROMPT,
-    DEFAULT_NUM_CTX,
-    DEFAULT_MAX_HISTORY,
-    DEFAULT_FILLER_MODEL,
-    CONF_FILLER_PROMPT,
+    CONF_WAIT_FOR_FILLER,
     CONF_ENABLE_NATIVE_INTENTS,
     CONF_ENABLE_FUZZY_MATCHING,
     DEFAULT_URL,
@@ -42,6 +37,7 @@ from .const import (
     DEFAULT_MAX_HISTORY,
     DEFAULT_FILLER_MODEL,
     DEFAULT_FILLER_PROMPT,
+    DEFAULT_WAIT_FOR_FILLER,
     DEFAULT_ENABLE_NATIVE_INTENTS,
     DEFAULT_ENABLE_FUZZY_MATCHING,
     FILLER_MODEL_ECHO,
@@ -272,6 +268,7 @@ class HybridConversationAgent(
         filler_prompt_template = settings.get(CONF_FILLER_PROMPT, DEFAULT_FILLER_PROMPT)
         keep_alive = settings.get(CONF_KEEP_ALIVE, DEFAULT_KEEP_ALIVE)
         num_ctx = settings.get(CONF_NUM_CTX, DEFAULT_NUM_CTX)
+        num_ctx = settings.get(CONF_NUM_CTX, DEFAULT_NUM_CTX)
         max_history = settings.get(CONF_MAX_HISTORY, DEFAULT_MAX_HISTORY)
 
         client = await self._get_client(url)
@@ -290,32 +287,32 @@ class HybridConversationAgent(
                 for tool in chat_log.llm_api.tools
             ]
 
-        # Generate and stream filler BEFORE the main loop (only once)
+        # Filler Model Strategy
+        # ---------------------
+        filler_text = None
+        wait_for_filler = settings.get(CONF_WAIT_FOR_FILLER, DEFAULT_WAIT_FOR_FILLER)
+
         if tracer:
             tracer.trace_event(run_id, "Filler Inference", "B", "hybrid_llm")
             
-        filler_text = await self._generate_filler(client, filler_model, filler_prompt_template, user_input)
+        # Create Filler Task
+        # We start this immediately in both modes
+        filler_task = asyncio.create_task(
+            self._generate_filler(client, filler_model, filler_prompt_template, user_input)
+        )
         
-        if tracer:
-            tracer.trace_event(run_id, "Filler Inference", "E", "hybrid_llm")
-            
-        if filler_text:
-            async def _filler_stream():
-                yield {"role": "assistant", "content": filler_text}
-            async for _ in chat_log.async_add_delta_content_stream(
-                self.entity_id, _filler_stream()
-            ):
-                pass
-            
-            # Append filler to messages so LLM sees it as recent history
-            # Order: User Input -> Assistant (Filler)
-            messages.append({"role": "assistant", "content": filler_text})
-
-        _LOGGER.debug("Messages to Ollama: %s", messages)
+        # Strategy: Sequential (Wait) 
+        if wait_for_filler:
+            filler_text = await filler_task
+            if tracer:
+                tracer.trace_event(run_id, "Filler Inference", "E", "hybrid_llm")
+                
+            if filler_text:
+                messages.append({"role": "assistant", "content": filler_text})
+                _LOGGER.debug(f"Filler (Sequential): {filler_text}")
 
         # Main conversation loop
         for _iteration in range(MAX_TOOL_ITERATIONS):
-            # Debug: Log the full request payload
             _LOGGER.debug(
                 "Ollama chat request [iteration %d] - model: %s, messages: %s, tools: %s",
                 _iteration, model, messages, tools
@@ -324,28 +321,21 @@ class HybridConversationAgent(
             if tracer:
                 tracer.trace_event(run_id, f"Main LLM Inference {_iteration}", "B", "hybrid_llm")
             
-            try:
-                response_generator = await client.chat(
-                    model=model,
-                    messages=list(messages),
-                    tools=tools,
-                    stream=True,
-                    keep_alive=f"{keep_alive}s" if isinstance(keep_alive, int) else keep_alive,
-                    options={"num_ctx": num_ctx},
-                    think=settings.get(CONF_THINK),
-                )
-            except (ollama.RequestError, ollama.ResponseError) as err:
-                 if tracer:
-                     tracer.trace_event(run_id, f"Main LLM Inference {_iteration}", "E", "hybrid_llm")
-                 _LOGGER.error("Unexpected error talking to Ollama server: %s", err)
-                 raise HomeAssistantError(
-                     f"Sorry, I had a problem talking to the Ollama server: {err}"
-                 ) from err
+            # Start Main LLM Task
+            main_llm_task = asyncio.create_task(client.chat(
+                model=model,
+                messages=list(messages),
+                tools=tools,
+                stream=True,
+                keep_alive=f"{keep_alive}s" if isinstance(keep_alive, int) else keep_alive,
+                options={"num_ctx": num_ctx},
+                think=settings.get(CONF_THINK),
+            ))
 
-            # Stream response through chat_log
+            # Stream response through chat_log using Orchestrator
             async for content in chat_log.async_add_delta_content_stream(
                 self.entity_id,
-                self._transform_stream(response_generator, run_id, tracer, _iteration),
+                self._orchestrate_stream(main_llm_task, filler_task, run_id, tracer, _iteration),
             ):
                 # Content is collected by chat_log automatically
                 pass
@@ -353,11 +343,9 @@ class HybridConversationAgent(
             if tracer:
                 tracer.trace_event(run_id, f"Main LLM Inference {_iteration}", "E", "hybrid_llm")
 
-            # Check if there are unresolved tool calls
             if not chat_log.unresponded_tool_results:
                 break
 
-            # Rebuild messages with tool results for next iteration
             messages = self._build_messages_from_chat_log(chat_log, max_history)
 
     async def _generate_filler(
@@ -388,7 +376,8 @@ class HybridConversationAgent(
             _LOGGER.debug("Filler in Echo Mode: returning prompt as filler")
             # Only return if there is text (trim whitespace)
             prompt_text = filler_prompt.strip()
-            return f"{prompt_text}... " if prompt_text else None
+            # Changed suffix to '.' to encourage TTS flushing
+            return f"{prompt_text}. " if prompt_text else None
 
         try:
             filler_response = await client.generate(
@@ -408,21 +397,44 @@ class HybridConversationAgent(
                     f"Filler LLM response: {filler_text} "
                     f"(Total: {total_duration:.3f}s, Load: {load_duration:.3f}s, Prompt Eval: {prompt_eval_duration:.3f}s)"
                 )
-                return f"{filler_text}... "
+                # Changed suffix to '.' to encourage TTS flushing
+                return f"{filler_text}. "
                 
             return None
         except Exception as e:
             _LOGGER.warning(f"Filler failed: {e}")
             return None
 
-    async def _transform_stream(
+    async def _orchestrate_stream(
         self,
-        response_generator,
+        main_llm_task: asyncio.Task,
+        filler_task: asyncio.Task,
         run_id: str = None,
         tracer = None,
-        iteration: int = 0
+        iteration: int = 0,
     ) -> AsyncGenerator[conversation.AssistantContentDeltaDict, None]:
-        """Transform Ollama stream to HA delta format."""
+        """Orchestrate the stream: Yield filler (if any), then yield Main LLM."""
+        
+        # 1. Yield Filler (Iteration 0 only)
+        if iteration == 0:
+            filler_text = await filler_task
+            
+            if tracer and run_id:
+                pass
+                
+            if filler_text:
+                 _LOGGER.debug(f"Filler (Orchestrated): {filler_text}")
+                 yield {"role": "assistant", "content": filler_text}
+                 
+        # 2. Await Main LLM Generator
+        try:
+            response_generator = await main_llm_task
+        except (ollama.RequestError, ollama.ResponseError) as err:
+             _LOGGER.error("Unexpected error talking to Ollama server: %s", err)
+             raise HomeAssistantError(
+                 f"Sorry, I had a problem talking to the Ollama server: {err}"
+             ) from err
+
         full_response = []
         first_token = True
         
@@ -479,7 +491,6 @@ class HybridConversationAgent(
                          "eval_count": eval_count
                      })
         
-        # Log the complete response at the end
         _LOGGER.debug("Ollama complete response: %s", "".join(full_response))
 
     def _build_messages_from_chat_log(

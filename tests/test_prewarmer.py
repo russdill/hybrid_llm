@@ -2,8 +2,8 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from homeassistant.core import HomeAssistant
-from homeassistant.const import STATE_ON, CONF_URL, CONF_MODEL
-from custom_components.hybrid_llm import async_setup_entry, DOMAIN
+from homeassistant.const import CONF_URL, CONF_MODEL
+from custom_components.hybrid_llm import DOMAIN
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -11,6 +11,17 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 def mock_ollama_client():
     with patch("custom_components.hybrid_llm.ollama.AsyncClient") as mock_client:
         client_instance = AsyncMock()
+        client_instance.chat.return_value = {
+            "total_duration": 1000000000,
+            "load_duration": 100000000,
+            "prompt_eval_duration": 100000000,
+            "prompt_eval_count": 10
+        }
+        client_instance.generate.return_value = {
+            "response": "Test Response",
+            "total_duration": 1000000000,
+            "load_duration": 100000000
+        }
         mock_client.return_value = client_instance
         yield client_instance
 

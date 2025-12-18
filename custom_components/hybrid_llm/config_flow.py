@@ -1,12 +1,11 @@
 """Config flow for Hybrid Local Voice Backend."""
 from typing import Any
 import voluptuous as vol
-import aiohttp
 import logging
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.const import CONF_URL, CONF_NAME
+from homeassistant.const import CONF_URL
 from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
@@ -17,11 +16,10 @@ from homeassistant.helpers.selector import (
     BooleanSelector,
     TemplateSelector,
 )
-import homeassistant.helpers.config_validation as cv
+
 
 from .const import (
     DOMAIN,
-    CONF_URL,
     CONF_KEEP_ALIVE,
     CONF_MODEL,
     CONF_PROMPT,
@@ -31,6 +29,7 @@ from .const import (
     CONF_THINK,
     CONF_FILLER_MODEL,
     CONF_FILLER_PROMPT,
+    CONF_WAIT_FOR_FILLER,
     CONF_ENABLE_NATIVE_INTENTS,
     CONF_ENABLE_FUZZY_MATCHING,
     DEFAULT_URL,
@@ -41,11 +40,13 @@ from .const import (
     DEFAULT_MAX_HISTORY,
     DEFAULT_FILLER_MODEL,
     DEFAULT_FILLER_PROMPT,
-    DEFAULT_FILLER_PROMPT,
+    DEFAULT_WAIT_FOR_FILLER,
     DEFAULT_ENABLE_NATIVE_INTENTS,
     DEFAULT_ENABLE_FUZZY_MATCHING,
-    DEFAULT_ENABLE_TRACER,
     CONF_ENABLE_TRACER,
+    DEFAULT_ENABLE_TRACER,
+    CONF_ENABLE_PREWARM,
+    DEFAULT_ENABLE_PREWARM,
     FILLER_MODEL_ECHO,
     COMMON_MODELS,
 )
@@ -185,6 +186,11 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                     description={"suggested_value": options.get(CONF_URL, DEFAULT_URL)}
                 ): str,
 
+                vol.Required(
+                    CONF_ENABLE_PREWARM,
+                    default=options.get(CONF_ENABLE_PREWARM, DEFAULT_ENABLE_PREWARM)
+                ): BooleanSelector(),
+
                 # Native Intents and Fuzzy Matching
                 vol.Required(
                      CONF_ENABLE_NATIVE_INTENTS,
@@ -208,6 +214,10 @@ class HybridLLMOptionsFlow(config_entries.OptionsFlow):
                     CONF_FILLER_PROMPT,
                     description={"suggested_value": options.get(CONF_FILLER_PROMPT, DEFAULT_FILLER_PROMPT)}
                 ): TemplateSelector(),
+                vol.Required(
+                    CONF_WAIT_FOR_FILLER,
+                    default=options.get(CONF_WAIT_FOR_FILLER, DEFAULT_WAIT_FOR_FILLER)
+                ): BooleanSelector(),
 
                 # Main Model
                 vol.Required(

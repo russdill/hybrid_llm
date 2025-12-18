@@ -1,4 +1,4 @@
-from homeassistant.const import CONF_URL
+
 from typing import Final
 
 DOMAIN: Final = "hybrid_llm"
@@ -12,9 +12,11 @@ CONF_LLM_HASS_API: Final = "llm_hass_api"
 CONF_THINK: Final = "think"
 CONF_FILLER_MODEL: Final = "filler_model"
 CONF_FILLER_PROMPT: Final = "filler_prompt"
+CONF_WAIT_FOR_FILLER: Final = "wait_for_filler"
 CONF_ENABLE_NATIVE_INTENTS: Final = "enable_native_intents"
 CONF_ENABLE_FUZZY_MATCHING: Final = "enable_fuzzy_matching"
 CONF_ENABLE_TRACER: Final = "enable_tracer"
+CONF_ENABLE_PREWARM: Final = "enable_prewarm"
 
 from homeassistant.helpers import llm
 
@@ -24,8 +26,10 @@ DEFAULT_MODEL: Final = "llama3"
 DEFAULT_PROMPT: Final = llm.DEFAULT_INSTRUCTIONS_PROMPT
 DEFAULT_NUM_CTX: Final = 4096
 DEFAULT_MAX_HISTORY: Final = 10
-DEFAULT_FILLER_MODEL: Final = "qwen2:0.5b"
-DEFAULT_FILLER_PROMPT: Final = "User said: '{{ text }}'. Echo the subject with a 'checking' phrase. Max 4 words."
+DEFAULT_FILLER_MODEL: Final = "qwen2.5:0.5b"
+DEFAULT_FILLER_PROMPT: Final = "User said: '{{ text }}'. Respond with a short phrase like 'Checking kitchen lights'. Max 4 words."
+DEFAULT_WAIT_FOR_FILLER: Final = False
+DEFAULT_ENABLE_PREWARM: Final = True
 
 FILLER_MODEL_ECHO: Final = "echo"
 

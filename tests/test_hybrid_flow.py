@@ -1,9 +1,9 @@
 """Test the Hybrid Conversation Agent flow logic."""
 from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
-from homeassistant.core import HomeAssistant
+
 from homeassistant.components import conversation
-from homeassistant.helpers import intent
+
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hybrid_llm import DOMAIN

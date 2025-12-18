@@ -1,16 +1,17 @@
 """Test the Hybrid LLM config flow."""
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 import asyncio
-import pytest
+
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 
 # Assuming pytest-homeassistant-custom-component is available
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from homeassistant.const import CONF_URL
 from custom_components.hybrid_llm.const import (
     DOMAIN,
-    CONF_URL,
+
     CONF_MODEL,
     CONF_FILLER_MODEL,
 )
@@ -63,8 +64,9 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     assert result["step_id"] == "init"
 
     # 2. Submit Form (Models exist)
-    with patch("custom_components.hybrid_llm.async_reload_entry") as mock_reload, \
+    with patch("custom_components.hybrid_llm.async_reload_entry"), \
          patch("custom_components.hybrid_llm.config_flow._get_installed_models", return_value=["test-model", "test-filler"]):
+
          result2 = await hass.config_entries.options.async_configure(
             result["flow_id"],
             user_input={
@@ -104,7 +106,7 @@ async def test_options_flow_download(hass: HomeAssistant) -> None:
         await download_event.wait()
         
     with patch("custom_components.hybrid_llm.config_flow._get_installed_models", return_value=[]), \
-         patch("custom_components.hybrid_llm.config_flow._pull_model", side_effect=mock_pull_with_wait) as mock_pull:
+         patch("custom_components.hybrid_llm.config_flow._pull_model", side_effect=mock_pull_with_wait):
          
          result2 = await hass.config_entries.options.async_configure(
             result["flow_id"],

@@ -153,7 +153,7 @@ async def test_llm_fallback_when_no_native_intent(hass, mock_ollama_client, mock
 @pytest.mark.asyncio
 async def test_ollama_process_streaming(hass, mock_ollama_client, mock_llm_api, mock_chat_log):
     """Test streaming response through ChatLog."""
-    entry = MockConfigEntry(data={}, options={"url": "http://ollama"})
+    entry = MockConfigEntry(data={}, options={"url": "http://ollama", "filler_model": "test_filler"})
     agent = HybridConversationAgent(hass, entry)
     agent.hass.data[DOMAIN] = {"cache": {}}
     
@@ -185,7 +185,7 @@ async def test_ollama_process_streaming(hass, mock_ollama_client, mock_llm_api, 
             mock_result.response.speech = {"plain": {"speech": "Checking... Hello World"}}
             mock_get_result.return_value = mock_result
             
-            result = await agent._async_handle_message(
+            await agent._async_handle_message(
                 conversation.ConversationInput(
                     text="hello",
                     context=MagicMock(),
@@ -334,7 +334,7 @@ async def test_tool_use_loop(hass, mock_ollama_client, mock_llm_api, mock_chat_l
 @pytest.mark.asyncio
 async def test_filler_called_only_once_in_tool_loop(hass, mock_ollama_client, mock_llm_api, mock_chat_log):
     """Test that filler is generated only once even when tool loop runs multiple iterations."""
-    agent = HybridConversationAgent(hass, MockConfigEntry(options={}))
+    agent = HybridConversationAgent(hass, MockConfigEntry(options={"filler_model": "test_filler"}))
     
     user_input = conversation.ConversationInput(
         text="turn on kitchen light",
@@ -380,7 +380,7 @@ async def test_filler_called_only_once_in_tool_loop(hass, mock_ollama_client, mo
     
     # Track filler generate calls
     filler_calls = []
-    original_generate = mock_ollama_client.generate
+    
     
     async def track_generate(*args, **kwargs):
         filler_calls.append(kwargs.get("prompt", args[0] if args else ""))
@@ -400,7 +400,7 @@ async def test_filler_called_only_once_in_tool_loop(hass, mock_ollama_client, mo
             mock_result.response.speech = {"plain": {"speech": "Light turned on."}}
             mock_get_result.return_value = mock_result
             
-            result = await agent._async_handle_message(user_input, mock_chat_log)
+            await agent._async_handle_message(user_input, mock_chat_log)
     
     # Verify filler was called exactly once, not twice
     assert len(filler_calls) == 1, f"Filler should be called once, but was called {len(filler_calls)} times"
@@ -505,7 +505,7 @@ async def test_hybrid_config_options(hass: HomeAssistant, mock_ollama_client, mo
             satellite_id=None,
         )
         
-        result = await agent._async_handle_message(user_input, mock_chat_log)
+        await agent._async_handle_message(user_input, mock_chat_log)
 
         # Debug called
         mock_default.async_debug_recognize.assert_called_once()
@@ -566,8 +566,8 @@ async def test_filler_echo_mode(hass, mock_ollama_client, mock_llm_api, mock_cha
             # 1. client.generate should NOT be called
             mock_ollama_client.generate.assert_not_called()
             
-            # 2. Filler text should be the rendered prompt ("Echoing: Hello World") + "... " suffix
-            expected = "Echoing: Hello World... "
+            # 2. Filler text should be the rendered prompt ("Echoing: Hello World") + ". " suffix
+            expected = "Echoing: Hello World. "
             assert any(expected in c for c in captured_content), f"Expected '{expected}' in {captured_content}"
 
 
@@ -767,6 +767,7 @@ async def test_filler_position(hass, mock_ollama_client, mock_chat_log):
     """Test that filler is included in LLM context (after user message)."""
     entry = MockConfigEntry(options={
         "filler_model": "test_filler",
+        "wait_for_filler": True,
         "enable_native_intents": False
     })
     agent = HybridConversationAgent(hass, entry)
@@ -787,7 +788,6 @@ async def test_filler_position(hass, mock_ollama_client, mock_chat_log):
     async def mock_stream(entity_id, stream):
         # Consume stream
         async for chunk in stream:
-            content = chunk["content"]
             # Simulate adding to chat log content so _build_messages sees it
             # Note: _build_messages reads mock_chat_log.content.
             # In update, we manually add it to 'messages' list in the test verification below?

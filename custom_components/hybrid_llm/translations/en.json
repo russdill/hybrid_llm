@@ -23,24 +23,28 @@
                     "keep_alive": "Keep alive",
                     "llm_hass_api": "Control Home Assistant",
                     "think": "Think before responding",
-                    "filler_model": "Filler Model",
-                    "filler_prompt": "Filler Prompt",
-                    "enable_native_intents": "Enable Native Intents",
-                    "enable_fuzzy_matching": "Enable Fuzzy Matching for Intents",
+                    "filler_model": "Filler Model (Fast)",
+                    "filler_prompt": "Filler Prompt Template",
+                    "wait_for_filler": "Wait for filler before main response?",
+                    "enable_native_intents": "Enable Native Intent Matching (HassIL)",
+                    "enable_fuzzy_matching": "Enable Fuzzy Matching (if Native fails)",
                     "enable_tracer": "Enable Performance Tracing",
-                    "satellite_entities": "Satellite Wake Word Sensors"
+                    "satellite_entities": "Satellite Wake Word Sensors",
+                    "enable_prewarm": "Enable Pre-warming"
                 },
                 "data_description": {
                     "prompt": "Instruct how the LLM should respond. This can be a template.",
                     "num_ctx": "Maximum number of text tokens the model can process. Lower to reduce Ollama RAM, or increase for a large number of exposed entities.",
                     "keep_alive": "Duration in seconds for Ollama to keep model in memory. -1 = indefinite, 0 = never.",
                     "think": "If enabled, the LLM will think before responding. This can improve response quality but may increase latency.",
-                    "filler_model": "Small, fast model used to generate a brief 'checking...' phrase while the main model processes.",
+                    "filler_model": "A small, fast model to acknowledge the user immediately (e.g. 'One moment...'). Select 'Echo' to just repeat a phrase.",
                     "filler_prompt": "Prompt template for generating filler phrases.",
-                    "enable_native_intents": "If enabled, built-in intents (e.g. Turn On Light) are checked locally before using the LLM.",
+                    "wait_for_filler": "If enabled, the main LLM will see the filler text in its history (more coherent). If disabled, both run in parallel (faster).",
+                    "enable_native_intents": "If enabled, the system will first try to match commands using Home Assistant's native intent engine (HassIL) before falling back to the LLM.",
                     "enable_fuzzy_matching": "Fuzzy matching is more likely to make mistakes that the LLM could better handle.",
                     "enable_tracer": "If enabled, detailed performance timelines (JSON) will be saved to /config/traces/.",
-                    "satellite_entities": "Select the 'Assist in Progress' binary sensors of your satellites. The pre-warmer will trigger when these turn on."
+                    "satellite_entities": "Select the 'Assist in Progress' binary sensors of your satellites. The pre-warmer will trigger when these turn on.",
+                    "enable_prewarm": "If enabled, the LLM will begin loading context when a wake word is detected (instead of waiting for speech to finish), reducing latency."
                 }
             },
             "download": {

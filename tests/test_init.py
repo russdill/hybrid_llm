@@ -1,11 +1,12 @@
 """Test the Hybrid LLM init file."""
-from unittest.mock import patch, MagicMock, AsyncMock
-import pytest
+from unittest.mock import patch
+
 from homeassistant.core import HomeAssistant
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.hybrid_llm.const import DOMAIN, CONF_URL, CONF_MODEL
+from homeassistant.const import CONF_URL
+from custom_components.hybrid_llm.const import DOMAIN, CONF_MODEL
 
 async def test_setup_entry(hass: HomeAssistant, mock_ollama_client, mock_llm_api) -> None:
     """Test setting up the integration entry."""
